@@ -5,20 +5,18 @@ import {
   Text,
   TouchableOpacity,
   Animated,
-  Platform,
+  StatusBar,
 } from "react-native";
 import { Accelerometer } from "expo-sensors";
 import { Image } from "expo-image";
 
 export default function App() {
   const [count, setCount] = useState(0);
-  const [subscription, setSubscription] = useState(null);
   const maxShake = 100;
 
-  // Animation pour la barre
+  // Progression animée
   const animatedProgress = useRef(new Animated.Value(0)).current;
 
-  // Met à jour l’animation quand le count change
   useEffect(() => {
     Animated.timing(animatedProgress, {
       toValue: count / maxShake,
@@ -27,30 +25,19 @@ export default function App() {
     }).start();
   }, [count]);
 
-  // Gestion de l’accéléromètre
+  // Abonnement aux secousses
   useEffect(() => {
-    _subscribe();
-    return () => _unsubscribe();
+    Accelerometer.setUpdateInterval(100);
+    const subscription = Accelerometer.addListener(({ x, y, z }) => {
+      const totalForce = Math.sqrt(x * x + y * y + z * z);
+      if (totalForce > 1.5) {
+        setCount((prev) => (prev < maxShake ? prev + 1 : prev));
+      }
+    });
+    return () => subscription.remove();
   }, []);
 
-  const _subscribe = () => {
-    Accelerometer.setUpdateInterval(100); // fréquence 100ms
-    setSubscription(
-      Accelerometer.addListener(({ x, y, z }) => {
-        const totalForce = Math.sqrt(x * x + y * y + z * z);
-        if (totalForce > 2) {
-          setCount((prev) => (prev < maxShake ? prev + 1 : prev));
-        }
-      })
-    );
-  };
-
-  const _unsubscribe = () => {
-    subscription && subscription.remove();
-    setSubscription(null);
-  };
-
-  // Réinitialiser le compteur
+  // Réinitialiser
   const resetShake = () => {
     setCount(0);
     animatedProgress.setValue(0);
@@ -62,29 +49,53 @@ export default function App() {
     outputRange: ["0%", "100%"],
   });
 
+  // Déterminer message motivation
+  const getMessage = () => {
+    if (count === 0) return "Prêt à secouer ?";
+    if (count < 25) return "Continue, tu te réchauffes !";
+    if (count < 50) return "Bien joué, à mi-chemin !";
+    if (count < 75) return "Plus que quelques secousses !";
+    if (count < 100) return "Presque au feu 🔥 !";
+    return "Bravo ! Feu débloqué !";
+  };
+
+  const isFire = count >= maxShake;
+
   return (
-    <View style={styles.container}>
-      {/* Image animée WebP */}
+    <View
+      style={[
+        styles.container,
+        isFire ? styles.fireBackground : styles.snowBackground,
+      ]}
+    >
+      <StatusBar barStyle="light-content" />
+
+      {/* Titre motivant */}
+      <Text style={styles.title}>{getMessage()}</Text>
+
+      {/* Image animée */}
       <Image
         source={
-          count < maxShake
-            ? require("./assets/icons/flocan.webp")
-            : require("./assets/icons/feu.webp")
+          isFire
+            ? require("./assets/icons/feu.webp")
+            : require("./assets/icons/flocan.webp")
         }
         style={styles.image}
         contentFit="contain"
         autoplay
       />
 
-      {/* Texte compteur */}
-      <Text style={styles.text}>{count} / {maxShake} secousses</Text>
+      {/* Compteur */}
+      <Text style={styles.counterText}>
+        {count} / {maxShake} secousses
+      </Text>
 
-      {/* Barre de progression fluide */}
+      {/* Barre de progression */}
       <View style={styles.progressWrapper}>
         <Animated.View style={[styles.progressFill, { width: progressWidth }]} />
       </View>
 
-      {/* Bouton Recommencer */}
+      {/* Bouton Reset */}
       <TouchableOpacity style={styles.button} onPress={resetShake}>
         <Text style={styles.buttonText}>Recommencer</Text>
       </TouchableOpacity>
@@ -97,37 +108,55 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#fff",
+    paddingHorizontal: 20,
+  },
+  snowBackground: {
+    backgroundColor: "#1e3c72", // bleu froid
+  },
+  fireBackground: {
+    backgroundColor: "#ff512f", // rouge/orange chaud
+  },
+  title: {
+    fontSize: 26,
+    fontWeight: "bold",
+    color: "#fff",
+    marginBottom: 20,
+    textAlign: "center",
   },
   image: {
     width: 200,
     height: 200,
     marginBottom: 30,
   },
-  text: {
+  counterText: {
     fontSize: 20,
-    marginBottom: 20,
+    fontWeight: "600",
+    color: "#fff",
+    marginBottom: 15,
   },
   progressWrapper: {
-    width: 250,
+    width: "80%",
     height: 20,
-    backgroundColor: "#ddd",
+    backgroundColor: "rgba(255,255,255,0.3)",
     borderRadius: 10,
     overflow: "hidden",
     marginBottom: 20,
   },
   progressFill: {
-    height: 20,
-    backgroundColor: "#4caf50",
+    height: "100%",
+    backgroundColor: "#fff",
   },
   button: {
-    backgroundColor: "#2196f3",
-    paddingVertical: 10,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    paddingVertical: 12,
     paddingHorizontal: 30,
-    borderRadius: 8,
+    borderRadius: 25,
+    borderWidth: 1,
+    borderColor: "#fff",
   },
   buttonText: {
     color: "#fff",
     fontSize: 18,
+    fontWeight: "600",
   },
 });
