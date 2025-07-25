@@ -9,28 +9,43 @@ import {
 } from "react-native";
 import { Accelerometer } from "expo-sensors";
 import { Image } from "expo-image";
+import * as Haptics from "expo-haptics";
 
 export default function App() {
   const [count, setCount] = useState(0);
   const maxShake = 100;
 
-  // Progression animée
+  // Animation de la progression et du fond
   const animatedProgress = useRef(new Animated.Value(0)).current;
+  const animatedBackground = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
+    // Barre de progression fluide
     Animated.timing(animatedProgress, {
       toValue: count / maxShake,
       duration: 300,
       useNativeDriver: false,
     }).start();
+
+    // Changement de couleur du fond
+    Animated.timing(animatedBackground, {
+      toValue: count >= maxShake ? 1 : 0,
+      duration: 800,
+      useNativeDriver: false,
+    }).start();
+
+    // Vibrer quand on atteint le feu
+    if (count === maxShake) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }
   }, [count]);
 
-  // Abonnement aux secousses
+  // Abonnement accéléromètre
   useEffect(() => {
     Accelerometer.setUpdateInterval(100);
     const subscription = Accelerometer.addListener(({ x, y, z }) => {
       const totalForce = Math.sqrt(x * x + y * y + z * z);
-      if (totalForce > 1.5) {
+      if (totalForce > 1) {
         setCount((prev) => (prev < maxShake ? prev + 1 : prev));
       }
     });
@@ -41,15 +56,22 @@ export default function App() {
   const resetShake = () => {
     setCount(0);
     animatedProgress.setValue(0);
+    animatedBackground.setValue(0);
   };
 
-  // Largeur animée
+  // Largeur barre animée
   const progressWidth = animatedProgress.interpolate({
     inputRange: [0, 1],
     outputRange: ["0%", "100%"],
   });
 
-  // Déterminer message motivation
+  // Couleur de fond animée
+  const backgroundColor = animatedBackground.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["#1e3c72", "#ff512f"], // Bleu → Rouge
+  });
+
+  // Message motivant
   const getMessage = () => {
     if (count === 0) return "Prêt à secouer ?";
     if (count < 25) return "Continue, tu te réchauffes !";
@@ -62,12 +84,7 @@ export default function App() {
   const isFire = count >= maxShake;
 
   return (
-    <View
-      style={[
-        styles.container,
-        isFire ? styles.fireBackground : styles.snowBackground,
-      ]}
-    >
+    <Animated.View style={[styles.container, { backgroundColor }]}>
       <StatusBar barStyle="light-content" />
 
       {/* Titre motivant */}
@@ -99,7 +116,7 @@ export default function App() {
       <TouchableOpacity style={styles.button} onPress={resetShake}>
         <Text style={styles.buttonText}>Recommencer</Text>
       </TouchableOpacity>
-    </View>
+    </Animated.View>
   );
 }
 
@@ -109,12 +126,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     paddingHorizontal: 20,
-  },
-  snowBackground: {
-    backgroundColor: "#1e3c72", // bleu froid
-  },
-  fireBackground: {
-    backgroundColor: "#ff512f", // rouge/orange chaud
   },
   title: {
     fontSize: 26,

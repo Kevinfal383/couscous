@@ -15,7 +15,8 @@
     "react": "19.0.0",
     "react-native": "0.79.5",
     "expo-sensors": "~14.1.4",
-    "expo-image": "~2.4.0"
+    "expo-image": "~2.4.0",
+    "expo-haptics": "~14.1.4"
   },
   "devDependencies": {
     "@babel/core": "^7.20.0"
