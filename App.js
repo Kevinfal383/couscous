@@ -10,37 +10,87 @@ import {
 import { Accelerometer } from "expo-sensors";
 import { Image } from "expo-image";
 import * as Haptics from "expo-haptics";
+import { Audio } from "expo-av";
 
 export default function App() {
   const [count, setCount] = useState(0);
   const maxShake = 100;
 
-  // Animation de la progression et du fond
+  // Animations
   const animatedProgress = useRef(new Animated.Value(0)).current;
   const animatedBackground = useRef(new Animated.Value(0)).current;
+  const animatedScale = useRef(new Animated.Value(1)).current;
 
+  // Effet son
+  const [sound, setSound] = useState(null);
+
+  // Jouer le son de victoire
+  async function playVictorySound() {
+    const { sound } = await Audio.Sound.createAsync(
+      require("./assets/song/j'suis chaud.mpeg") // Mets ton fichier ici
+    );
+    setSound(sound);
+    await sound.playAsync();
+  }
+
+  // Stopper et décharger le son
+  async function stopVictorySound() {
+    if (sound) {
+      await sound.stopAsync();
+      await sound.unloadAsync();
+      setSound(null);
+    }
+  }
+
+  // Nettoyer le son quand composant démonte
   useEffect(() => {
-    // Barre de progression fluide
+    return sound
+      ? () => {
+          sound.unloadAsync();
+        }
+      : undefined;
+  }, [sound]);
+
+  // Animation au changement de count
+  useEffect(() => {
+    // Barre fluide
     Animated.timing(animatedProgress, {
       toValue: count / maxShake,
       duration: 300,
       useNativeDriver: false,
     }).start();
 
-    // Changement de couleur du fond
+    // Fond fluide
     Animated.timing(animatedBackground, {
-      toValue: count >= maxShake ? 1 : 0,
+      toValue: count >= maxShake ? 1.5 : 0,
       duration: 800,
       useNativeDriver: false,
     }).start();
 
-    // Vibrer quand on atteint le feu
+    // Vibrer + son + pulse quand feu atteint
     if (count === maxShake) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+      // Animation pulse
+      Animated.sequence([
+        Animated.spring(animatedScale, {
+          toValue: 1.3,
+          friction: 3,
+          useNativeDriver: true,
+        }),
+        Animated.spring(animatedScale, {
+          toValue: 1,
+          friction: 3,
+          useNativeDriver: true,
+        }),
+      ]).start();
+
+      // Jouer son
+      playVictorySound();
     }
   }, [count]);
 
-  // Abonnement accéléromètre
+  // Accéléromètre
   useEffect(() => {
     Accelerometer.setUpdateInterval(100);
     const subscription = Accelerometer.addListener(({ x, y, z }) => {
@@ -52,32 +102,33 @@ export default function App() {
     return () => subscription.remove();
   }, []);
 
-  // Réinitialiser
+  // Reset
   const resetShake = () => {
+    stopVictorySound(); // Stopper la musique
     setCount(0);
     animatedProgress.setValue(0);
     animatedBackground.setValue(0);
   };
 
-  // Largeur barre animée
+  // Progression barre
   const progressWidth = animatedProgress.interpolate({
     inputRange: [0, 1],
     outputRange: ["0%", "100%"],
   });
 
-  // Couleur de fond animée
+  // Couleur fond
   const backgroundColor = animatedBackground.interpolate({
     inputRange: [0, 1],
-    outputRange: ["#1e3c72", "#ff512f"], // Bleu → Rouge
+    outputRange: ["#1e3c72", "#ff512f"],
   });
 
   // Message motivant
   const getMessage = () => {
     if (count === 0) return "Prêt à secouer ?";
-    if (count < 25) return "Continue, tu te réchauffes !";
-    if (count < 50) return "Bien joué, à mi-chemin !";
-    if (count < 75) return "Plus que quelques secousses !";
-    if (count < 100) return "Presque au feu 🔥 !";
+    if (count < 3) return "Continue, tu te réchauffes !";
+    if (count < 6) return "Bien joué, à mi-chemin !";
+    if (count < 9) return "Plus que quelques secousses !";
+    if (count < 10) return "Presque au feu 🔥 !";
     return "Bravo ! Feu débloqué !";
   };
 
@@ -90,24 +141,26 @@ export default function App() {
       {/* Titre motivant */}
       <Text style={styles.title}>{getMessage()}</Text>
 
-      {/* Image animée */}
-      <Image
-        source={
-          isFire
-            ? require("./assets/icons/feu.webp")
-            : require("./assets/icons/flocan.webp")
-        }
-        style={styles.image}
-        contentFit="contain"
-        autoplay
-      />
+      {/* Image avec animation scale */}
+      <Animated.View style={{ transform: [{ scale: animatedScale }] }}>
+        <Image
+          source={
+            isFire
+              ? require("./assets/icons/feu.webp")
+              : require("./assets/icons/flocan.webp")
+          }
+          style={styles.image}
+          contentFit="contain"
+          autoplay
+        />
+      </Animated.View>
 
       {/* Compteur */}
       <Text style={styles.counterText}>
         {count} / {maxShake} secousses
       </Text>
 
-      {/* Barre de progression */}
+      {/* Barre progression */}
       <View style={styles.progressWrapper}>
         <Animated.View style={[styles.progressFill, { width: progressWidth }]} />
       </View>
