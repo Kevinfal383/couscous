@@ -11,8 +11,13 @@ import { Accelerometer } from "expo-sensors";
 import { Image } from "expo-image";
 import * as Haptics from "expo-haptics";
 import { Audio } from "expo-av";
+import { NavigationContainer } from "@react-navigation/native";
+import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import CaloriesScreen from "./CaloriesScreen";
 
-export default function App() {
+const Stack = createNativeStackNavigator();
+
+function HomeScreen({ navigation }) {
   const [count, setCount] = useState(0);
   const maxShake = 100;
 
@@ -21,28 +26,45 @@ export default function App() {
   const animatedBackground = useRef(new Animated.Value(0)).current;
   const animatedScale = useRef(new Animated.Value(1)).current;
 
-  // Effet son
+  // Son
   const [sound, setSound] = useState(null);
+  const isPlayingSound = useRef(false);
 
-  // Jouer le son de victoire
+  // Historique secousses
+  const shakeTimestamps = useRef([]);
+
   async function playVictorySound() {
-    const { sound } = await Audio.Sound.createAsync(
-      require("./assets/song/j'suis chaud.mpeg") // Mets ton fichier ici
-    );
-    setSound(sound);
-    await sound.playAsync();
-  }
-
-  // Stopper et décharger le son
-  async function stopVictorySound() {
-    if (sound) {
-      await sound.stopAsync();
-      await sound.unloadAsync();
-      setSound(null);
+    if (!isPlayingSound.current) {
+      const { sound } = await Audio.Sound.createAsync(
+        require("./assets/song/j'suis chaud.mpeg")
+      );
+      setSound(sound);
+      isPlayingSound.current = true;
+      await sound.playAsync();
     }
   }
 
-  // Nettoyer le son quand composant démonte
+  async function stopVictorySound() {
+    if (sound) {
+      try {
+        await sound.stopAsync();
+        await sound.unloadAsync();
+      } catch (e) {
+        console.log("Erreur arrêt son :", e);
+      }
+    }
+    setSound(null);
+    isPlayingSound.current = false;
+  }
+
+  // Arrêter musique quand on quitte la page
+  useEffect(() => {
+    const unsubscribe = navigation.addListener("blur", () => {
+      stopVictorySound();
+    });
+    return unsubscribe;
+  }, [navigation]);
+
   useEffect(() => {
     return sound
       ? () => {
@@ -51,27 +73,30 @@ export default function App() {
       : undefined;
   }, [sound]);
 
-  // Animation au changement de count
+  // Animation et gestion musique
   useEffect(() => {
-    // Barre fluide
     Animated.timing(animatedProgress, {
       toValue: count / maxShake,
-      duration: 300,
+      duration: 150,
       useNativeDriver: false,
     }).start();
 
-    // Fond fluide
     Animated.timing(animatedBackground, {
-      toValue: count >= maxShake ? 1.5 : 0,
+      toValue: count >= 90 ? 1 : 0,
       duration: 800,
       useNativeDriver: false,
     }).start();
 
-    // Vibrer + son + pulse quand feu atteint
+    if (count >= 90 && !isPlayingSound.current) {
+      playVictorySound();
+    }
+
+    if (count < 90 && isPlayingSound.current) {
+      stopVictorySound();
+    }
+
     if (count === maxShake) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-
-      // Animation pulse
       Animated.sequence([
         Animated.spring(animatedScale, {
           toValue: 1.3,
@@ -84,92 +109,130 @@ export default function App() {
           useNativeDriver: true,
         }),
       ]).start();
-
-      // Jouer son
-      playVictorySound();
     }
   }, [count]);
 
-  // Accéléromètre
+  // Détection secousses
   useEffect(() => {
-    Accelerometer.setUpdateInterval(100);
+    Accelerometer.setUpdateInterval(50);
+
     const subscription = Accelerometer.addListener(({ x, y, z }) => {
       const totalForce = Math.sqrt(x * x + y * y + z * z);
-      if (totalForce > 1) {
-        setCount((prev) => (prev < maxShake ? prev + 1 : prev));
+
+      if (totalForce > 1.3) {
+        const now = Date.now();
+
+        shakeTimestamps.current.push(now);
+
+        shakeTimestamps.current = shakeTimestamps.current.filter(
+          (t) => now - t <= 1000
+        );
+
+        const frequency = shakeTimestamps.current.length;
+
+        if (frequency >= 3) {
+          setCount((prev) => Math.min(prev + 1, maxShake));
+        }
       }
     });
+
     return () => subscription.remove();
+  }, []);
+
+  // Diminution auto
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const now = Date.now();
+
+      shakeTimestamps.current = shakeTimestamps.current.filter(
+        (t) => now - t <= 1000
+      );
+
+      const frequency = shakeTimestamps.current.length;
+
+      if (frequency < 3) {
+        setCount((prev) => Math.max(prev - 1, 0));
+      }
+    }, 50);
+
+    return () => clearInterval(interval);
   }, []);
 
   // Reset
   const resetShake = () => {
-    stopVictorySound(); // Stopper la musique
+    stopVictorySound();
     setCount(0);
     animatedProgress.setValue(0);
     animatedBackground.setValue(0);
   };
 
-  // Progression barre
   const progressWidth = animatedProgress.interpolate({
     inputRange: [0, 1],
     outputRange: ["0%", "100%"],
   });
 
-  // Couleur fond
   const backgroundColor = animatedBackground.interpolate({
     inputRange: [0, 1],
     outputRange: ["#1e3c72", "#ff512f"],
   });
 
-  // Message motivant
   const getMessage = () => {
-    if (count === 0) return "Prêt à secouer ?";
-    if (count < 3) return "Continue, tu te réchauffes !";
-    if (count < 6) return "Bien joué, à mi-chemin !";
-    if (count < 9) return "Plus que quelques secousses !";
-    if (count < 10) return "Presque au feu 🔥 !";
-    return "Bravo ! Feu débloqué !";
+    if (count < 90) return "Encore un peu... Chauffe !";
+    if (count < 100) return "🔥 Presque au max !";
+    return "Bravo ! Feu total !";
   };
 
-  const isFire = count >= maxShake;
+  const isHot = count >= 90;
+  const calories = count * 0.5; // Exemple 0.5 kcal par secousse
 
   return (
     <Animated.View style={[styles.container, { backgroundColor }]}>
       <StatusBar barStyle="light-content" />
 
-      {/* Titre motivant */}
       <Text style={styles.title}>{getMessage()}</Text>
 
-      {/* Image avec animation scale */}
       <Animated.View style={{ transform: [{ scale: animatedScale }] }}>
         <Image
           source={
-            isFire
+            isHot
               ? require("./assets/icons/feu.webp")
               : require("./assets/icons/flocan.webp")
           }
           style={styles.image}
           contentFit="contain"
-          autoplay
         />
       </Animated.View>
 
-      {/* Compteur */}
       <Text style={styles.counterText}>
         {count} / {maxShake} secousses
       </Text>
 
-      {/* Barre progression */}
       <View style={styles.progressWrapper}>
         <Animated.View style={[styles.progressFill, { width: progressWidth }]} />
       </View>
 
-      {/* Bouton Reset */}
       <TouchableOpacity style={styles.button} onPress={resetShake}>
         <Text style={styles.buttonText}>Recommencer</Text>
       </TouchableOpacity>
+
+      <TouchableOpacity
+        style={[styles.button, { marginTop: 15 }]}
+        onPress={() => navigation.navigate("Calories", { calories })}
+      >
+        <Text style={styles.buttonText}>Voir Calories</Text>
+      </TouchableOpacity>
     </Animated.View>
+  );
+}
+
+export default function App() {
+  return (
+    <NavigationContainer>
+      <Stack.Navigator>
+        <Stack.Screen name="Home" component={HomeScreen} options={{ headerShown: false }} />
+        <Stack.Screen name="Calories" component={CaloriesScreen} options={{ title: "Calories brûlées" }} />
+      </Stack.Navigator>
+    </NavigationContainer>
   );
 }
 
